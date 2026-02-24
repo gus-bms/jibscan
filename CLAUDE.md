@@ -6,16 +6,19 @@ This file provides guidance to AI assistants (Claude and others) working on this
 
 ## 📌 프로젝트 개요
 
-**jibscan**은 국토교통부 공공 API(MOLIT)를 기반으로 한 한국 부동산 AI 분석 플랫폼입니다.
-사용자가 자연어로 부동산 데이터를 조회·분석하고, 투자 인사이트를 얻을 수 있는 풀스택 웹 서비스입니다.
+**jibscan**은 국토교통부 공공 API(MOLIT)를 기반으로 한 한국 부동산 데이터 시각화 플랫폼입니다.
+공공 데이터를 수집·가공하여 차트, 지도, 표 형태로 제공하는 풀스택 웹 서비스입니다.
+
+> **결정 사항 (2026-02-24):** Claude API(AI 분석) 미사용. 공공 API 데이터 수집 + 시각화에 집중.
+> AI 기능은 추후 필요 시 서비스 레이어 추가로 확장 가능하도록 설계.
 
 ### 핵심 기능 (MVP)
 
-1. **아파트 시세 분석 챗봇** — 자연어로 실거래가 조회 및 트렌드 분석
-2. **내 집 마련 플래너** — 예산/지역 기반 현실적 매물 추천 (매매 vs 전세 비교)
-3. **부동산 시장 모니터링** — 지역별 거래량·가격 변동 감지 및 알림
-4. **경매/공매 AI 분석** — 낙찰가율, 경쟁률, 권리분석 포인트 요약
-5. **청약 당첨 전략 어드바이저** — 청약 일정·경쟁률 분석 및 전략 제안
+1. **아파트 시세 차트** — 지역/기간별 실거래가 추이 그래프
+2. **내 집 마련 필터** — 예산/지역 기반 매매·전세 데이터 조회 및 비교표
+3. **부동산 시장 모니터링** — 지역별 거래량·가격 변동 현황판 및 알림
+4. **경매/공매 현황판** — 낙찰가율, 경쟁률, 물건 목록 조회
+5. **청약 캘린더** — 청약 일정·경쟁률 조회 및 지역별 통계
 
 ---
 
@@ -27,10 +30,11 @@ jibscan/
 │   ├── web/                  # Next.js 15 (App Router) — 프론트엔드
 │   └── api/                  # NestJS — 백엔드 API 서버
 ├── packages/
-│   ├── mcp-client/           # real-estate-mcp 연동 클라이언트
 │   ├── ui/                   # 공유 UI 컴포넌트 (shadcn/ui 기반)
 │   ├── types/                # 공유 TypeScript 타입 정의
 │   └── config/               # ESLint, TSConfig 등 공유 설정
+├── mcp-server/
+│   └── real-estate-mcp/      # MOLIT 공공 API MCP 서버 (git submodule)
 ├── CLAUDE.md
 ├── package.json              # pnpm workspace 루트
 └── turbo.json                # Turborepo 설정
@@ -66,13 +70,12 @@ jibscan/
 | 작업 큐 | BullMQ |
 | 문서화 | Swagger (OpenAPI 3.0) |
 
-### MCP / AI
+### 공공 API 연동
 
 | 항목 | 기술 |
 |---|---|
 | MCP 서버 | tae0y/real-estate-mcp (MOLIT API) |
-| AI 모델 | Claude API (`claude-sonnet-4-6`) |
-| MCP 클라이언트 | `@anthropic-ai/sdk` + MCP SDK |
+| 실행 환경 | Python 3.11+ + uv |
 
 ### 인프라
 
@@ -91,16 +94,17 @@ jibscan/
 
 ```
 사용자 (Next.js)
-  ↓ REST / SSE
+  ↓ REST
 NestJS API
-  ↓ MCP Client
-real-estate-mcp (MOLIT 공공 API)
-  ↓
-Claude API (분석/요약/전략 생성)
+  ↓ HTTP (공공데이터포털 직접 호출)
+MOLIT 공공 API / 청약홈 / 온비드
   ↓
 PostgreSQL (결과 캐싱, 사용자 데이터)
 Redis (단기 캐시, 세션, 큐)
 ```
+
+> **참고:** real-estate-mcp는 로컬 개발 시 탐색·테스트 목적으로 활용.
+> 프로덕션 백엔드는 NestJS에서 공공 API를 직접 호출하고 Redis로 캐싱.
 
 ### 백엔드 모듈 구조 (NestJS)
 
@@ -108,13 +112,11 @@ Redis (단기 캐시, 세션, 큐)
 src/
 ├── modules/
 │   ├── auth/             # 인증/인가 (JWT)
-│   ├── apartment/        # 아파트 시세 조회·분석
-│   ├── planner/          # 내 집 마련 플래너
+│   ├── apartment/        # 아파트 시세 조회 (매매·전월세)
+│   ├── planner/          # 내 집 마련 필터 (매매 vs 전세 비교)
 │   ├── monitoring/       # 시장 모니터링 & 알림
-│   ├── auction/          # 경매/공매 분석
-│   ├── subscription/     # 청약 분석
-│   ├── chat/             # AI 챗봇 (SSE 스트리밍)
-│   └── mcp/              # MCP 클라이언트 래퍼 (공통)
+│   ├── auction/          # 경매/공매 현황 조회
+│   └── subscription/     # 청약 일정·통계 조회
 ├── common/
 │   ├── decorators/
 │   ├── filters/
@@ -135,80 +137,65 @@ app/
 ├── (dashboard)/
 │   ├── layout.tsx        # 공통 대시보드 레이아웃
 │   ├── page.tsx          # 홈 (시장 요약 대시보드)
-│   ├── chat/             # 시세 분석 챗봇
-│   ├── planner/          # 내 집 마련 플래너
-│   ├── monitoring/       # 시장 모니터링
-│   ├── auction/          # 경매 분석
-│   └── subscription/     # 청약 어드바이저
+│   ├── apartment/        # 아파트 시세 차트
+│   ├── planner/          # 내 집 마련 필터
+│   ├── monitoring/       # 시장 모니터링 현황판
+│   ├── auction/          # 경매/공매 현황판
+│   └── subscription/     # 청약 캘린더
 ├── api/                  # Next.js Route Handlers (BFF 용도)
 └── layout.tsx
 ```
 
 ---
 
-## 🔌 MCP 연동 가이드
+## 🔌 공공 API 연동 가이드
 
 ### 환경변수 설정
 
 ```bash
 # .env
 DATA_GO_KR_API_KEY=your_data_go_kr_api_key   # 공공데이터포털 API 키
-ANTHROPIC_API_KEY=your_anthropic_api_key
+
+# 청약홈 인증 오류 시에만 추가 (기본은 위 키 재사용)
+# ODCLOUD_SERVICE_KEY=your_odcloud_service_key
+
+# 온비드 인증 오류 시에만 추가
+# ONBID_API_KEY=your_onbid_api_key
 ```
 
-### MCP 클라이언트 패턴 (NestJS)
+### NestJS에서 공공 API 호출 패턴
 
 ```typescript
-// packages/mcp-client/src/real-estate.client.ts
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-
+// apartment 모듈 예시
 @Injectable()
-export class RealEstateMcpClient {
-  private client: Client
+export class ApartmentService {
+  constructor(
+    private readonly httpService: HttpService,
+    private readonly cacheService: CacheService,
+  ) {}
 
-  async callTool(toolName: string, args: Record<string, unknown>) {
-    return this.client.callTool({ name: toolName, arguments: args })
-  }
+  async getTrades(regionCode: string, yearMonth: string) {
+    const cacheKey = `trades:${regionCode}:${yearMonth}`
+    const cached = await this.cacheService.get(cacheKey)
+    if (cached) return cached
 
-  // 아파트 실거래가 조회
-  async getApartmentTrades(regionCode: string, yearMonth: string) {
-    return this.callTool('get_apartment_trades', { regionCode, yearMonth })
-  }
+    const { data } = await this.httpService.axiosRef.get(
+      'https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev',
+      {
+        params: {
+          serviceKey: process.env.DATA_GO_KR_API_KEY,
+          LAWD_CD: regionCode,
+          DEAL_YMD: yearMonth,
+          numOfRows: 100,
+        },
+      },
+    )
 
-  // 아파트 전월세 조회
-  async getApartmentRent(regionCode: string, yearMonth: string) {
-    return this.callTool('get_apartment_rent', { regionCode, yearMonth })
-  }
-
-  // 공매 데이터 조회
-  async getAuctions(regionCode: string, yearMonth: string) {
-    return this.callTool('get_auctions', { regionCode, yearMonth })
-  }
-}
-```
-
-### AI 분석 패턴 (Claude API + SSE 스트리밍)
-
-```typescript
-// chat 모듈에서 스트리밍 응답 예시
-async *streamAnalysis(prompt: string): AsyncGenerator<string> {
-  const stream = await this.anthropic.messages.stream({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 2048,
-    messages: [{ role: 'user', content: prompt }],
-    system: JIBSCAN_SYSTEM_PROMPT,
-  })
-
-  for await (const chunk of stream) {
-    if (chunk.type === 'content_block_delta') {
-      yield chunk.delta.text
-    }
+    await this.cacheService.set(cacheKey, data, 3600) // TTL 1시간
+    return data
   }
 }
 ```
-
-> **규칙:** MCP 툴 호출은 반드시 `mcp` 모듈을 통해서만 접근. 직접 호출 금지.
 
 ---
 
@@ -273,8 +260,7 @@ model Planner {
   user        User     @relation(fields: [userId], references: [id])
   budget      Int
   regions     String[] // 법정동 코드 배열
-  housingType String   // BUY | RENT | JEONSE
-  result      Json?    // AI 분석 결과 캐싱
+  housingType String   // BUY | JEONSE
   createdAt   DateTime @default(now())
 }
 
@@ -293,7 +279,6 @@ enum AlertType {
 | 전월세 조회 | 1시간 | `rent:{regionCode}:{yearMonth}` |
 | 경매 데이터 | 1시간 | `auction:{regionCode}:{yearMonth}` |
 | 청약 정보 | 6시간 | `subscription:{yearMonth}` |
-| AI 분석 결과 | 24시간 | `analysis:{hash(prompt)}` |
 
 ---
 
@@ -315,14 +300,14 @@ enum AlertType {
 - Node.js 20+
 - pnpm 9+
 - Docker & Docker Compose
-- Python 3.11+ (real-estate-mcp 실행용)
-- uv (Python 패키지 매니저)
+- Python 3.11+ (real-estate-mcp 로컬 탐색용, 선택사항)
+- uv (Python 패키지 매니저, 선택사항)
 
 ### 초기 설정
 
 ```bash
-# 1. 레포 클론
-git clone https://github.com/your-org/jibscan.git
+# 1. 레포 클론 (서브모듈 포함)
+git clone --recurse-submodules https://github.com/your-org/jibscan.git
 cd jibscan
 
 # 2. 의존성 설치
@@ -330,7 +315,7 @@ pnpm install
 
 # 3. 환경변수 설정
 cp .env.example .env
-# .env 파일에 API 키 입력
+# .env 파일에 DATA_GO_KR_API_KEY 입력
 
 # 4. DB 및 Redis 실행
 docker-compose up -d postgres redis
@@ -338,12 +323,12 @@ docker-compose up -d postgres redis
 # 5. DB 마이그레이션
 pnpm --filter api prisma migrate dev
 
-# 6. real-estate-mcp 서버 설정 (별도 터미널)
+# 6. 개발 서버 실행
+pnpm dev
+
+# (선택) real-estate-mcp 로컬 탐색용 서버
 cd mcp-server/real-estate-mcp
 uv run python src/real_estate/mcp_server/server.py
-
-# 7. 개발 서버 실행
-pnpm dev
 ```
 
 ### 주요 스크립트
@@ -373,23 +358,22 @@ pnpm type-check   # TypeScript 타입 검사
 
 - [ ] 모노레포 기반 설정 (Turborepo + pnpm)
 - [ ] NestJS 기본 구조 + Prisma + Redis 연동
-- [ ] real-estate-mcp 클라이언트 모듈 구현
-- [ ] 아파트 시세 조회 API
-- [ ] AI 챗봇 (SSE 스트리밍) — 시세 분석
-- [ ] Next.js 기본 레이아웃 + 챗봇 UI
+- [ ] 아파트 시세 조회 API (매매·전월세)
+- [ ] Next.js 기본 레이아웃 + 시세 차트 UI (Recharts)
+- [ ] 지역 코드 검색 기능
 
 ### Phase 2 — 핵심 기능 (4주)
 
-- [ ] 내 집 마련 플래너 (매매 vs 전세 비교)
-- [ ] 경매/공매 AI 분석
-- [ ] 청약 어드바이저
+- [ ] 내 집 마련 필터 (예산/지역 기반 매매 vs 전세 비교표)
+- [ ] 경매/공매 현황판
+- [ ] 청약 캘린더 (일정·경쟁률)
 - [ ] 사용자 인증 (JWT)
 - [ ] Kakao Maps 지도 연동
 
 ### Phase 3 — 고도화 (4주)
 
 - [ ] 시장 모니터링 + 알림 시스템 (BullMQ + 이메일)
-- [ ] 분석 리포트 저장 및 히스토리
+- [ ] 즐겨찾기 지역 저장 및 히스토리
 - [ ] 대시보드 고도화 (차트, 지표)
 - [ ] 성능 최적화 및 캐싱 전략 강화
 
@@ -404,17 +388,16 @@ pnpm type-check   # TypeScript 타입 검사
 3. **스타일 일치** — 기존 코드 스타일, 네이밍 컨벤션, 패턴을 따를 것
 4. **테스트 커버리지** — 추가하거나 수정한 코드에 대한 테스트 추가 또는 업데이트
 5. **브랜치 규율** — 모든 작업은 지정된 feature 브랜치에서 진행, 리뷰 없이 `main`에 직접 push 금지
-6. **MCP 접근 규칙** — 공공 API 데이터는 반드시 `mcp` 모듈을 통해서만 접근
-7. **보안 우선** — API 키와 민감 정보는 절대 클라이언트 코드나 git에 노출 금지
-8. **이 파일 업데이트** — 새로운 컨벤션, 명령어, 아키텍처 결정이 생기면 이 CLAUDE.md를 업데이트
+6. **보안 우선** — API 키와 민감 정보는 절대 클라이언트 코드나 git에 노출 금지
+7. **이 파일 업데이트** — 새로운 컨벤션, 명령어, 아키텍처 결정이 생기면 이 CLAUDE.md를 업데이트
 
 ---
 
 ## 📝 참고 자료
 
-- [real-estate-mcp GitHub](https://github.com/tae0y/real-estate-mcp) — MOLIT MCP 서버
+- [real-estate-mcp GitHub](https://github.com/tae0y/real-estate-mcp) — MOLIT MCP 서버 (로컬 탐색용)
 - [공공데이터포털](https://www.data.go.kr) — API 키 발급
 - [NestJS 공식 문서](https://docs.nestjs.com)
 - [Next.js 공식 문서](https://nextjs.org/docs)
-- [Anthropic MCP 문서](https://docs.anthropic.com/en/docs/agents-and-tools/mcp)
-- [Claude API 문서](https://docs.anthropic.com/en/api)
+- [Recharts 공식 문서](https://recharts.org)
+- [Kakao Maps SDK](https://apis.map.kakao.com/web/guide/)
