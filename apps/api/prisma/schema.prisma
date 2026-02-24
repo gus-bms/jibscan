@@ -1,0 +1,63 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  password  String
+  name      String?
+  alerts    Alert[]
+  planners  Planner[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("users")
+}
+
+model Alert {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  regionCode String    // 법정동코드 앞 5자리
+  regionName String
+  type       AlertType
+  threshold  Float
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+
+  @@map("alerts")
+}
+
+model Planner {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  budget      Int
+  regions     String[]    // 법정동코드 앞 5자리 배열
+  housingType HousingType
+  result      Json?       // AI 분석 결과 캐싱
+  createdAt   DateTime    @default(now())
+
+  @@map("planners")
+}
+
+enum AlertType {
+  PRICE_UP
+  PRICE_DOWN
+  VOLUME_SURGE
+}
+
+enum HousingType {
+  BUY
+  RENT
+  JEONSE
+}

@@ -1,0 +1,7 @@
+{
+  "extends": "@jibscan/config/tsconfig",
+  "compilerOptions": {
+    "outDir": "./dist"
+  },
+  "include": ["src"]
+}
