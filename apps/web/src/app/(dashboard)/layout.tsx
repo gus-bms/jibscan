@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { HeaderAuthButton } from '@/components/layout/HeaderAuthButton'
 
 const navItems = [
   { href: '/', label: '홈' },
@@ -28,12 +29,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </Link>
             ))}
           </nav>
-          <Link
-            href="/login"
-            className="text-sm px-4 py-2 bg-blue-700 text-white rounded-md hover:bg-blue-800 transition-colors"
-          >
-            로그인
-          </Link>
+          <HeaderAuthButton />
         </div>
       </header>
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">{children}</main>

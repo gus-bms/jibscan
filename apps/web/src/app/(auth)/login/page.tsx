@@ -1,4 +1,7 @@
-export const metadata = { title: '로그인 | 집스캔' }
+import { Metadata } from 'next'
+import { LoginForm } from '@/components/auth/LoginForm'
+
+export const metadata: Metadata = { title: '로그인 | 집스캔' }
 
 export default function LoginPage() {
   return (
@@ -6,13 +9,15 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-gray-900">🏠 집스캔</h1>
-          <p className="text-gray-600 mt-1">로그인</p>
+          <p className="text-gray-500 mt-1 text-sm">부동산 AI 분석 플랫폼</p>
         </div>
-        <div className="bg-white rounded-xl border p-8 shadow-sm">
-          <div className="p-8 text-center text-gray-400 text-sm">
-            로그인 UI는 Phase 2에서 구현 예정
-          </div>
-        </div>
+        <LoginForm />
+        <p className="text-center text-sm text-gray-500 mt-6">
+          계정이 없으신가요?{' '}
+          <a href="/signup" className="text-blue-600 hover:underline font-medium">
+            회원가입
+          </a>
+        </p>
       </div>
     </div>
   )
